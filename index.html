@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="WALLE — aplikasi pencatatan keuangan pribadi. Catat pemasukan, pengeluaran, pantau saldo dan arus kas bulananmu." />
+  <meta name="theme-color" content="#08090a" />
+  <title>WALLE</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d2550'/%3E%3Crect x='5.5' y='10.5' width='21' height='12.25' rx='3.25' fill='%230a1c36' stroke='%23eaf3ff' stroke-width='1.6'/%3E%3Cpath d='M6.25 14.25 9.25 20.5 12.25 15.9 15.25 20.5 18 14.25' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Crect x='17.75' y='15.5' width='8.5' height='5.75' rx='1.7' fill='%23123a6b' stroke='%23eaf3ff' stroke-width='1.2'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="WALLE beranda">
+        <span class="brand-mark" aria-hidden="true">
+          <img src="walle-mark.svg" alt="" width="40" height="40" />
+        </span>
+        <span class="brand-copy">
+          <span class="brand-name">WALLE</span>
+          <span class="brand-tag">Catatan keuangan pribadi</span>
+        </span>
+      </a>
+      <div class="topbar-meta">
+        <span class="pill">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="11" width="18" height="11" rx="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          Data lokal
+        </span>
+        <span class="pill pill-date" id="todayChip"></span>
+      </div>
+    </header>
+
+    <main>
+      <section class="stats" aria-label="Ringkasan keuangan">
+        <article class="stat-card stat-balance">
+          <div class="stat-head">
+            <span class="stat-icon" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a2 2 0 0 1 2 2v1" />
+                <rect x="3" y="7" width="18" height="12" rx="2.5" />
+                <path d="M16 13h.01" />
+              </svg>
+            </span>
+            <span>Total saldo</span>
+          </div>
+          <p class="stat-value" id="balanceValue">Rp 0</p>
+          <p class="stat-note" id="balanceNote">Bulan ini · Rp 0</p>
+        </article>
+
+        <article class="stat-card stat-income">
+          <div class="stat-head">
+            <span class="stat-icon" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 7 7 17" />
+                <path d="M17 17H7V7" />
+              </svg>
+            </span>
+            <span>Total pemasukan</span>
+          </div>
+          <p class="stat-value" id="incomeValue">Rp 0</p>
+          <p class="stat-note" id="incomeNote">Bulan ini · Rp 0</p>
+        </article>
+
+        <article class="stat-card stat-expense">
+          <div class="stat-head">
+            <span class="stat-icon" aria-hidden="true">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M7 17 17 7" />
+                <path d="M7 7h10v10" />
+              </svg>
+            </span>
+            <span>Total pengeluaran</span>
+          </div>
+          <p class="stat-value" id="expenseValue">Rp 0</p>
+          <p class="stat-note" id="expenseNote">Bulan ini · Rp 0</p>
+        </article>
+      </section>
+
+      <div class="workspace">
+        <section class="panel form-panel" aria-labelledby="formTitle">
+          <div class="panel-head">
+            <div>
+              <h2 id="formTitle">Tambah transaksi</h2>
+              <p class="panel-sub">Catat pemasukan atau pengeluaran baru.</p>
+            </div>
+          </div>
+
+          <form id="transactionForm" data-type="income" novalidate>
+            <div class="field">
+              <span class="field-label" id="typeLabel">Jenis transaksi</span>
+              <div class="segmented" role="group" aria-labelledby="typeLabel">
+                <button type="button" class="type-btn" data-form-type="income" aria-pressed="true">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M17 7 7 17" />
+                    <path d="M17 17H7V7" />
+                  </svg>
+                  Pemasukan
+                </button>
+                <button type="button" class="type-btn" data-form-type="expense" aria-pressed="false">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M7 17 17 7" />
+                    <path d="M7 7h10v10" />
+                  </svg>
+                  Pengeluaran
+                </button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="amountInput">Nominal</label>
+              <div class="input-shell">
+                <span class="input-prefix">Rp</span>
+                <input id="amountInput" class="has-prefix" type="number" inputmode="numeric" min="1" step="1" placeholder="0" autocomplete="off" required />
+              </div>
+              <p class="field-error" id="amountError" role="alert" hidden></p>
+            </div>
+
+            <div class="field-row">
+              <div class="field">
+                <label for="categorySelect">Kategori</label>
+                <select id="categorySelect" required></select>
+                <p class="field-error" id="categoryError" role="alert" hidden></p>
+              </div>
+              <div class="field">
+                <label for="dateInput">Tanggal</label>
+                <input id="dateInput" type="date" required />
+                <p class="field-error" id="dateError" role="alert" hidden></p>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="noteInput">Catatan <span class="optional">(opsional)</span></label>
+              <input id="noteInput" type="text" maxlength="60" placeholder="Contoh: Makan siang di kantor" autocomplete="off" />
+            </div>
+
+            <button type="submit" class="btn-primary" id="submitBtn">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+              </svg>
+              <span>Simpan transaksi</span>
+            </button>
+          </form>
+        </section>
+
+        <div class="content">
+          <section class="panel chart-panel" aria-labelledby="chartTitle">
+            <div class="panel-head chart-head">
+              <div>
+                <h2 id="chartTitle">Arus kas bulanan</h2>
+                <p class="panel-sub">Pemasukan dan pengeluaran dalam 6 bulan terakhir.</p>
+              </div>
+              <div class="legend" aria-hidden="true">
+                <span class="legend-item income"><i></i>Pemasukan</span>
+                <span class="legend-item expense"><i></i>Pengeluaran</span>
+              </div>
+            </div>
+            <div class="chart-wrap" id="chartWrap">
+              <canvas id="cashflowChart" role="img" aria-label="Grafik batang arus kas bulanan 6 bulan terakhir"></canvas>
+              <div class="chart-tooltip" id="chartTooltip" hidden></div>
+              <div class="chart-empty" id="chartEmpty" hidden>
+                <p>Belum ada data grafik</p>
+                <span>Grafik akan muncul setelah kamu mencatat transaksi.</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel history-panel" aria-labelledby="historyTitle">
+            <div class="panel-head history-head">
+              <div>
+                <h2 id="historyTitle">Riwayat transaksi</h2>
+                <p class="panel-sub" id="historySub">Semua transaksi tersimpan di perangkat ini.</p>
+              </div>
+              <span class="count-badge" id="historyCount">0 transaksi</span>
+            </div>
+
+            <div class="toolbar">
+              <div class="input-shell search-shell">
+                <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+                <input id="searchInput" type="search" placeholder="Cari transaksi, kategori, nominal..." aria-label="Cari transaksi" autocomplete="off" />
+              </div>
+              <select id="typeFilter" aria-label="Filter jenis transaksi">
+                <option value="all">Semua jenis</option>
+                <option value="income">Pemasukan</option>
+                <option value="expense">Pengeluaran</option>
+              </select>
+              <select id="categoryFilter" aria-label="Filter kategori">
+                <option value="all">Semua kategori</option>
+              </select>
+            </div>
+
+            <div class="tx-list" id="transactionList" aria-live="polite"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <p>WALLE · Data hanya tersimpan di browser perangkat ini (localStorage).</p>
+    </footer>
+  </div>
+
+  <!-- Modal edit transaksi -->
+  <div class="modal" id="editModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+      <div class="modal-head">
+        <div>
+          <h2 id="editTitle">Edit transaksi</h2>
+          <p class="panel-sub">Perbarui detail transaksi pilihanmu.</p>
+        </div>
+        <button type="button" class="icon-btn modal-close" data-close-modal aria-label="Tutup dialog">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <form id="editForm" data-type="income" novalidate>
+        <div class="field">
+          <span class="field-label">Jenis transaksi</span>
+          <div class="segmented" role="group" aria-label="Jenis transaksi">
+            <button type="button" class="type-btn" data-edit-type="income" aria-pressed="true">Pemasukan</button>
+            <button type="button" class="type-btn" data-edit-type="expense" aria-pressed="false">Pengeluaran</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="editAmount">Nominal</label>
+          <div class="input-shell">
+            <span class="input-prefix">Rp</span>
+            <input id="editAmount" class="has-prefix" type="number" inputmode="numeric" min="1" step="1" data-autofocus required />
+          </div>
+          <p class="field-error" id="editAmountError" role="alert" hidden></p>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="editCategory">Kategori</label>
+            <select id="editCategory" required></select>
+            <p class="field-error" id="editCategoryError" role="alert" hidden></p>
+          </div>
+          <div class="field">
+            <label for="editDate">Tanggal</label>
+            <input id="editDate" type="date" required />
+            <p class="field-error" id="editDateError" role="alert" hidden></p>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="editNote">Catatan <span class="optional">(opsional)</span></label>
+          <input id="editNote" type="text" maxlength="60" autocomplete="off" />
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" data-close-modal>Batal</button>
+          <button type="submit" class="btn-primary">Simpan perubahan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal konfirmasi hapus -->
+  <div class="modal" id="deleteModal" hidden>
+    <div class="modal-card modal-sm" role="alertdialog" aria-modal="true" aria-labelledby="deleteTitle" aria-describedby="deleteDesc">
+      <div class="danger-icon" aria-hidden="true">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h18" />
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+          <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          <path d="M10 11v6" />
+          <path d="M14 11v6" />
+        </svg>
+      </div>
+      <h2 id="deleteTitle">Hapus transaksi?</h2>
+      <p class="modal-text" id="deleteDesc">Transaksi ini akan dihapus permanen dari riwayat dan tidak dapat dikembalikan.</p>
+      <p class="delete-summary" id="deleteSummary"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-modal data-autofocus>Batal</button>
+        <button type="button" class="btn-danger" id="confirmDeleteBtn">Hapus</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
