@@ -122,7 +122,7 @@ try {
       ariaLabel: document.querySelector('.brand')?.getAttribute('aria-label'),
       tag: document.querySelector('.brand-tag')?.textContent,
       footer: document.querySelector('.footer')?.textContent,
-      favicon: document.querySelector('link[rel="icon"]')?.getAttribute('href'),
+      favicons: [...document.querySelectorAll('link[rel="icon"]')].map((link) => link.getAttribute('href')),
       markSrc: mark.querySelector('img')?.getAttribute('src'),
       markLoaded: (mark.querySelector('img')?.naturalWidth || 0) > 0,
       bodyText: document.body.innerText,
@@ -133,12 +133,37 @@ try {
   check('brand aria-label updated', /^WALLE\b/.test(branding.ariaLabel || ''), branding.ariaLabel);
   check('footer mentions WALLE', /WALLE/.test(branding.footer || ''), branding.footer);
   check('no MYFINANCE left in visible text', !/myfinance/i.test(branding.bodyText), 'still present');
-  const faviconSvg = decodeURIComponent(branding.favicon || '');
-  check('favicon uses navy + W geometry', /0d2550/i.test(faviconSvg) && /38bdf8/i.test(faviconSvg) && /M6\.25 14\.25/.test(faviconSvg), branding.favicon);
-  check('navbar renders SVG logo', branding.markSrc === 'walle-mark.svg' && branding.markLoaded, JSON.stringify({ src: branding.markSrc, loaded: branding.markLoaded }));
+  check(
+    'favicon uses the new PNG logo',
+    branding.favicons.length === 2 &&
+      branding.favicons.every((href) => /^assets\/icons\/favicon-(16|32)\.png$/.test(href)),
+    JSON.stringify(branding.favicons)
+  );
+  check('navbar renders the new logo', branding.markSrc === 'assets/icons/icon-192.png' && branding.markLoaded, JSON.stringify({ src: branding.markSrc, loaded: branding.markLoaded }));
+
+  const credit = await evaluate(`
+    return {
+      brand: document.querySelector('.credit-brand')?.textContent,
+      author: document.querySelector('.credit-author')?.textContent,
+    };
+  `);
+  check('footer credit names the author', /M\. RIFAL OPAMA LUBIS/.test(credit.author || ''), credit.author);
+  check('footer credit names the app', /WALLE . Catatan Keuangan Pribadi/.test(credit.brand || ''), credit.brand);
+
+  const theme = await evaluate(`
+    const styles = getComputedStyle(document.documentElement);
+    return {
+      accent: styles.getPropertyValue('--accent').trim(),
+      income: styles.getPropertyValue('--income').trim(),
+      expense: styles.getPropertyValue('--expense').trim(),
+    };
+  `);
+  check('primary accent is blue', /38bdf8/i.test(theme.accent), theme.accent);
+  check('income indicator is blue', /38bdf8/i.test(theme.income), theme.income);
+  check('expense indicator stays red', /ff7070/i.test(theme.expense), theme.expense);
 
   // Reset storage for a clean run.
-  await evaluate('localStorage.removeItem("myfinance:transactions:v1"); return true;');
+  await evaluate('localStorage.removeItem("myfinance:transactions:v1"); localStorage.removeItem("walle:savings:v1"); return true;');
 
   // 1. Validation: empty amount/category
   const invalid = await evaluate(`
@@ -354,6 +379,165 @@ try {
     reset.type === 'expense' && reset.expensePressed === 'true',
     JSON.stringify(reset)
   );
+
+  // 10. Tabungan: tambah target + ringkasan + progres
+  const savingsAdded = await evaluate(`
+    document.getElementById('toastStack').replaceChildren();
+    document.getElementById('addSavingsBtn').click();
+    const modalOpened = !document.getElementById('savingsModal').hidden;
+    document.getElementById('savingsName').value = 'Laptop';
+    document.getElementById('savingsTarget').value = '10000000';
+    document.getElementById('savingsSaved').value = '2500000';
+    document.getElementById('savingsForm').requestSubmit();
+    const card = document.querySelector('#savingsList .savings-card');
+    return {
+      modalOpened,
+      modalClosed: document.getElementById('savingsModal').hidden,
+      stored: JSON.parse(localStorage.getItem('walle:savings:v1') || '[]'),
+      cards: document.querySelectorAll('#savingsList .savings-card').length,
+      name: card?.querySelector('.savings-name')?.textContent,
+      total: document.getElementById('savingsTotalValue').textContent,
+      active: document.getElementById('savingsActiveValue').textContent,
+      done: document.getElementById('savingsDoneValue').textContent,
+      percent: card?.querySelector('.savings-percent')?.textContent,
+      remaining: card?.querySelector('.savings-remaining')?.textContent,
+      width: card?.querySelector('.progress-fill')?.style.width,
+      date: card?.querySelector('.savings-date')?.textContent,
+      toast: [...document.querySelectorAll('.toast')].map(t => t.textContent.trim()).join('|'),
+    };
+  `);
+  check('savings modal opens', savingsAdded.modalOpened && savingsAdded.modalClosed, JSON.stringify(savingsAdded));
+  check(
+    'savings goal saved to localStorage',
+    savingsAdded.stored.length === 1 && savingsAdded.stored[0].name === 'Laptop' &&
+      savingsAdded.stored[0].target === 10000000 && savingsAdded.stored[0].saved === 2500000,
+    JSON.stringify(savingsAdded.stored)
+  );
+  check('savings card renders', savingsAdded.cards === 1 && savingsAdded.name === 'Laptop', JSON.stringify(savingsAdded));
+  check('savings total summary', clean(savingsAdded.total) === 'Rp 2.500.000', savingsAdded.total);
+  check('savings running target summary', savingsAdded.active === '1 target', savingsAdded.active);
+  check('savings completed summary', savingsAdded.done === '0 target', savingsAdded.done);
+  check('savings percentage shown', savingsAdded.percent === '25% tercapai', savingsAdded.percent);
+  check('savings remaining shown', clean(savingsAdded.remaining).includes('Rp 7.500.000'), savingsAdded.remaining);
+  check('savings progress bar width', savingsAdded.width === '25%', savingsAdded.width);
+  check('savings creation date shown', /^Dibuat /.test(savingsAdded.date || ''), savingsAdded.date);
+  check('toast shown on savings add', savingsAdded.toast.includes('berhasil ditambahkan'), savingsAdded.toast);
+
+  // 11. Tabungan: tambah dana menyelesaikan target
+  const savingsFunded = await evaluate(`
+    document.querySelector('#savingsList [data-action="fund"]').click();
+    const opened = !document.getElementById('savingsFundModal').hidden;
+    const current = document.getElementById('savingsFundCurrent').textContent;
+    document.getElementById('savingsFundAmount').value = '7500000';
+    document.getElementById('savingsFundForm').requestSubmit();
+    const card = document.querySelector('#savingsList .savings-card');
+    return {
+      opened,
+      current,
+      stored: JSON.parse(localStorage.getItem('walle:savings:v1') || '[]'),
+      percent: card?.querySelector('.savings-percent')?.textContent,
+      width: card?.querySelector('.progress-fill')?.style.width,
+      total: document.getElementById('savingsTotalValue').textContent,
+      active: document.getElementById('savingsActiveValue').textContent,
+      done: document.getElementById('savingsDoneValue').textContent,
+      complete: card?.classList.contains('is-complete'),
+      toast: [...document.querySelectorAll('.toast')].map(t => t.textContent.trim()).join('|'),
+    };
+  `);
+  check('fund modal opens with current amount', savingsFunded.opened && clean(savingsFunded.current) === 'Rp 2.500.000', JSON.stringify(savingsFunded));
+  check('adding funds persists', savingsFunded.stored[0]?.saved === 10000000, JSON.stringify(savingsFunded.stored));
+  check('adding funds updates progress', savingsFunded.width === '100%' && savingsFunded.percent === '100% tercapai', JSON.stringify(savingsFunded));
+  check('adding funds updates totals', clean(savingsFunded.total) === 'Rp 10.000.000' && savingsFunded.active === '0 target' && savingsFunded.done === '1 target', JSON.stringify(savingsFunded));
+  check('completed goal is highlighted', savingsFunded.complete === true, JSON.stringify(savingsFunded));
+  check('completion toast shown', savingsFunded.toast.includes('tercapai'), savingsFunded.toast);
+
+  // 12. Tabungan: edit target
+  const savingsEdited = await evaluate(`
+    document.querySelector('#savingsList [data-action="edit"]').click();
+    const opened = !document.getElementById('savingsModal').hidden;
+    const title = document.getElementById('savingsModalTitle').textContent;
+    const prefilled = document.getElementById('savingsName').value;
+    document.getElementById('savingsName').value = 'Laptop Pro';
+    document.getElementById('savingsTarget').value = '12000000';
+    document.getElementById('savingsForm').requestSubmit();
+    const card = document.querySelector('#savingsList .savings-card');
+    return {
+      opened,
+      title,
+      prefilled,
+      stored: JSON.parse(localStorage.getItem('walle:savings:v1') || '[]'),
+      name: card?.querySelector('.savings-name')?.textContent,
+      percent: card?.querySelector('.savings-percent')?.textContent,
+      remaining: card?.querySelector('.savings-remaining')?.textContent,
+      active: document.getElementById('savingsActiveValue').textContent,
+      done: document.getElementById('savingsDoneValue').textContent,
+    };
+  `);
+  check('edit modal opens prefilled', savingsEdited.opened && savingsEdited.prefilled === 'Laptop' && savingsEdited.title === 'Edit target tabungan', JSON.stringify(savingsEdited));
+  check(
+    'editing target persists',
+    savingsEdited.stored[0]?.name === 'Laptop Pro' && savingsEdited.stored[0]?.target === 12000000,
+    JSON.stringify(savingsEdited.stored)
+  );
+  check('editing target refreshes progress', savingsEdited.percent === '83% tercapai' && clean(savingsEdited.remaining).includes('Rp 2.000.000'), JSON.stringify(savingsEdited));
+  check('editing target refreshes summary', savingsEdited.active === '1 target' && savingsEdited.done === '0 target', JSON.stringify(savingsEdited));
+
+  // 13. Tabungan: persist setelah reload
+  await send('Page.reload');
+  await sleep(500);
+  const savingsReloaded = await waitFor(async () => {
+    const state = await evaluate(`
+      const card = document.querySelector('#savingsList .savings-card');
+      return {
+        ready: document.readyState === 'complete' && !!card,
+        name: card?.querySelector('.savings-name')?.textContent,
+        total: document.getElementById('savingsTotalValue')?.textContent,
+        percent: card?.querySelector('.savings-percent')?.textContent,
+      };
+    `);
+    return state.ready ? state : false;
+  }, 8000);
+  check('savings persist after reload', savingsReloaded && savingsReloaded.name === 'Laptop Pro' && clean(savingsReloaded.total) === 'Rp 10.000.000', JSON.stringify(savingsReloaded));
+
+  // 14. Tabungan: hapus target
+  const savingsDeleted = await evaluate(`
+    document.querySelector('#savingsList [data-action="delete"]').click();
+    const opened = !document.getElementById('savingsDeleteModal').hidden;
+    const summary = document.getElementById('savingsDeleteSummary').textContent;
+    document.getElementById('confirmSavingsDeleteBtn').click();
+    return {
+      opened,
+      summary,
+      closed: document.getElementById('savingsDeleteModal').hidden,
+      stored: JSON.parse(localStorage.getItem('walle:savings:v1') || '[]'),
+      cards: document.querySelectorAll('#savingsList .savings-card').length,
+      total: document.getElementById('savingsTotalValue').textContent,
+      active: document.getElementById('savingsActiveValue').textContent,
+      done: document.getElementById('savingsDoneValue').textContent,
+      empty: !!document.querySelector('#savingsList .empty-state'),
+      toast: [...document.querySelectorAll('.toast')].map(t => t.textContent.trim()).join('|'),
+    };
+  `);
+  check('savings delete modal opens with summary', savingsDeleted.opened && clean(savingsDeleted.summary).includes('Laptop Pro'), JSON.stringify(savingsDeleted));
+  check('savings delete persists', savingsDeleted.stored.length === 0 && savingsDeleted.cards === 0 && savingsDeleted.closed, JSON.stringify(savingsDeleted));
+  check('savings summary resets after delete', clean(savingsDeleted.total) === 'Rp 0' && savingsDeleted.active === '0 target' && savingsDeleted.done === '0 target', JSON.stringify(savingsDeleted));
+  check('savings empty state shown', savingsDeleted.empty === true, JSON.stringify(savingsDeleted));
+  check('toast shown on savings delete', savingsDeleted.toast.includes('dihapus'), savingsDeleted.toast);
+
+  // 15. Validasi form tabungan
+  const savingsInvalid = await evaluate(`
+    document.getElementById('addSavingsBtn').click();
+    document.getElementById('savingsForm').requestSubmit();
+    const nameError = document.getElementById('savingsNameError').textContent;
+    const targetError = document.getElementById('savingsTargetError').textContent;
+    document.querySelector('#savingsModal [data-close-modal]').click();
+    return {
+      nameError,
+      targetError,
+      stored: JSON.parse(localStorage.getItem('walle:savings:v1') || '[]').length,
+    };
+  `);
+  check('savings validation blocks empty form', savingsInvalid.nameError.length > 0 && savingsInvalid.targetError.length > 0 && savingsInvalid.stored === 0, JSON.stringify(savingsInvalid));
 
   check('no runtime errors', errors.length === 0, errors.join(' | '));
 } catch (error) {

@@ -9,7 +9,9 @@
 
   /* Nama kunci dipertahankan agar data transaksi lama tetap terbaca. */
   const STORAGE_KEY = 'myfinance:transactions:v1';
+  const SAVINGS_KEY = 'walle:savings:v1';
   const MAX_AMOUNT = 1e12;
+  const MAX_SAVINGS_NAME = 40;
   const CHART_MONTHS = 6;
 
   const CATEGORIES = {
@@ -30,6 +32,10 @@
       '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a2 2 0 0 1 2 2v1" /><rect x="3" y="7" width="18" height="12" rx="2.5" /><path d="M16 13h.01" /></svg>',
     search:
       '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>',
+    target:
+      '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4.5" /><circle cx="12" cy="12" r="1" /></svg>',
+    plus:
+      '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>',
   };
 
   const TOAST_ICONS = {
@@ -75,6 +81,10 @@
     deleteId: null,
     lastFocus: null,
     filters: { search: '', type: 'all', category: 'all' },
+    savings: [],
+    savingsEditId: null,
+    savingsDeleteId: null,
+    savingsFundId: null,
   };
 
   const chartState = { hovered: -1, geometry: [] };
@@ -102,6 +112,11 @@
   function todayISO() {
     const now = new Date();
     return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  }
+
+  function isoFromTimestamp(timestamp) {
+    const date = new Date(timestamp);
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
   }
 
   function isValidDateString(value) {
@@ -204,6 +219,50 @@
       return true;
     } catch (error) {
       console.warn('WALLE: gagal menyimpan data ke localStorage.', error);
+      return false;
+    }
+  }
+
+  function normalizeSavings(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, MAX_SAVINGS_NAME) : '';
+    if (!name) return null;
+
+    const target = Number(raw.target);
+    if (!Number.isFinite(target) || target <= 0 || target > MAX_AMOUNT) return null;
+
+    const saved = Number(raw.saved);
+    const createdAt = Number(raw.createdAt);
+
+    return {
+      id: typeof raw.id === 'string' && raw.id ? raw.id : uid(),
+      name,
+      target: Math.round(target),
+      saved: Number.isFinite(saved) && saved > 0 ? Math.min(Math.round(saved), MAX_AMOUNT) : 0,
+      createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : Date.now(),
+    };
+  }
+
+  function loadSavings() {
+    try {
+      const raw = window.localStorage.getItem(SAVINGS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map(normalizeSavings).filter(Boolean);
+    } catch (error) {
+      console.warn('WALLE: gagal membaca data tabungan dari localStorage.', error);
+      return [];
+    }
+  }
+
+  function saveSavings() {
+    try {
+      window.localStorage.setItem(SAVINGS_KEY, JSON.stringify(state.savings));
+      return true;
+    } catch (error) {
+      console.warn('WALLE: gagal menyimpan data tabungan ke localStorage.', error);
       return false;
     }
   }
@@ -418,6 +477,9 @@
 
     if (modal === els.editModal) state.editId = null;
     if (modal === els.deleteModal) state.deleteId = null;
+    if (modal === els.savingsModal) state.savingsEditId = null;
+    if (modal === els.savingsFundModal) state.savingsFundId = null;
+    if (modal === els.savingsDeleteModal) state.savingsDeleteId = null;
 
     const previous = state.lastFocus;
     state.lastFocus = null;
@@ -850,8 +912,8 @@
     const pairWidth = barWidth * 2 + barGap;
 
     const incomeGradient = ctx.createLinearGradient(0, plotTop, 0, plotBottom);
-    incomeGradient.addColorStop(0, 'rgba(61, 220, 151, 0.95)');
-    incomeGradient.addColorStop(1, 'rgba(61, 220, 151, 0.42)');
+    incomeGradient.addColorStop(0, 'rgba(125, 211, 252, 0.98)');
+    incomeGradient.addColorStop(1, 'rgba(56, 189, 248, 0.45)');
 
     const expenseGradient = ctx.createLinearGradient(0, plotTop, 0, plotBottom);
     expenseGradient.addColorStop(0, 'rgba(255, 112, 112, 0.95)');
@@ -968,6 +1030,7 @@
     renderStats();
     renderHistory();
     renderChart();
+    renderSavings();
   }
 
   /* ------------------------------------------------------------------------
@@ -1165,6 +1228,363 @@
   }
 
   /* ------------------------------------------------------------------------
+     Tabungan
+     ------------------------------------------------------------------------ */
+
+  function findSavings(id) {
+    return state.savings.find((goal) => goal.id === id) || null;
+  }
+
+  function savingsPercent(goal) {
+    if (!goal.target) return 0;
+    return (goal.saved / goal.target) * 100;
+  }
+
+  function savingsTotals() {
+    let total = 0;
+    let done = 0;
+    for (const goal of state.savings) {
+      total += goal.saved;
+      if (goal.saved >= goal.target) done += 1;
+    }
+    return { total, done, active: state.savings.length - done };
+  }
+
+  function buildSavingsCard(goal) {
+    const percent = savingsPercent(goal);
+    const roundedPercent = Math.floor(percent);
+    const barWidth = Math.max(0, Math.min(100, percent));
+    const complete = goal.saved >= goal.target;
+    const remaining = Math.max(0, goal.target - goal.saved);
+
+    const card = document.createElement('article');
+    card.className = `savings-card${complete ? ' is-complete' : ''}`;
+    card.dataset.id = goal.id;
+
+    const head = document.createElement('div');
+    head.className = 'savings-card-head';
+
+    const icon = document.createElement('span');
+    icon.className = 'savings-icon';
+    icon.innerHTML = ICONS.target;
+
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'savings-title-wrap';
+
+    const name = document.createElement('h3');
+    name.className = 'savings-name';
+    name.textContent = goal.name;
+
+    const date = document.createElement('p');
+    date.className = 'savings-date';
+    date.textContent = `Dibuat ${formatShortDate(isoFromTimestamp(goal.createdAt))}`;
+
+    titleWrap.append(name, date);
+
+    const actions = document.createElement('div');
+    actions.className = 'savings-actions';
+
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'icon-btn';
+    editButton.dataset.action = 'edit';
+    editButton.setAttribute('aria-label', `Edit target tabungan ${goal.name}`);
+    editButton.innerHTML = ICONS.edit;
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'icon-btn danger';
+    deleteButton.dataset.action = 'delete';
+    deleteButton.setAttribute('aria-label', `Hapus target tabungan ${goal.name}`);
+    deleteButton.innerHTML = ICONS.trash;
+
+    actions.append(editButton, deleteButton);
+    head.append(icon, titleWrap, actions);
+
+    const figures = document.createElement('div');
+    figures.className = 'savings-figures';
+
+    const savedValue = document.createElement('span');
+    savedValue.className = 'savings-saved';
+    savedValue.textContent = rp.format(goal.saved);
+
+    const targetValue = document.createElement('span');
+    targetValue.className = 'savings-target';
+    targetValue.textContent = `dari ${rp.format(goal.target)}`;
+
+    figures.append(savedValue, targetValue);
+
+    const progress = document.createElement('div');
+    progress.className = 'progress';
+    progress.setAttribute('role', 'progressbar');
+    progress.setAttribute('aria-label', `Progres tabungan ${goal.name}`);
+    progress.setAttribute('aria-valuemin', '0');
+    progress.setAttribute('aria-valuemax', '100');
+    progress.setAttribute('aria-valuenow', String(roundedPercent));
+    progress.setAttribute('aria-valuetext', `${roundedPercent}% dari target tercapai`);
+
+    const fill = document.createElement('span');
+    fill.className = 'progress-fill';
+    fill.style.width = `${barWidth}%`;
+    progress.append(fill);
+
+    const metaRow = document.createElement('div');
+    metaRow.className = 'savings-meta-row';
+
+    const percentBadge = document.createElement('span');
+    percentBadge.className = 'savings-percent';
+    percentBadge.textContent = `${roundedPercent}% tercapai`;
+
+    const remainingText = document.createElement('span');
+    remainingText.className = 'savings-remaining';
+    if (complete) {
+      remainingText.innerHTML = 'Target <strong>tercapai</strong>';
+    } else {
+      remainingText.innerHTML = `Sisa <strong>${rp.format(remaining)}</strong>`;
+    }
+
+    metaRow.append(percentBadge, remainingText);
+
+    const fundButton = document.createElement('button');
+    fundButton.type = 'button';
+    fundButton.className = 'savings-fund-btn';
+    fundButton.dataset.action = 'fund';
+    fundButton.setAttribute('aria-label', `Tambah dana tabungan ${goal.name}`);
+    fundButton.innerHTML = `${ICONS.plus}<span>Tambah dana</span>`;
+
+    card.append(head, figures, progress, metaRow, fundButton);
+    return card;
+  }
+
+  function renderSavings() {
+    if (!els.savingsList) return;
+
+    const totals = savingsTotals();
+    els.savingsTotalValue.textContent = rp.format(totals.total);
+    els.savingsActiveValue.textContent = `${totals.active} target`;
+    els.savingsDoneValue.textContent = `${totals.done} target`;
+
+    if (!state.savings.length) {
+      els.savingsList.replaceChildren(
+        buildEmptyState(
+          ICONS.target,
+          'Belum ada target tabungan',
+          'Tambahkan target pertamamu, lalu catat dana yang kamu sisihkan secara berkala.'
+        )
+      );
+      return;
+    }
+
+    const goals = [...state.savings].sort((a, b) => b.createdAt - a.createdAt);
+    const fragment = document.createDocumentFragment();
+    for (const goal of goals) fragment.append(buildSavingsCard(goal));
+    els.savingsList.replaceChildren(fragment);
+  }
+
+  function validateSavingsForm() {
+    let valid = true;
+
+    clearFieldError(els.savingsName, els.savingsNameError);
+    clearFieldError(els.savingsTarget, els.savingsTargetError);
+    clearFieldError(els.savingsSaved, els.savingsSavedError);
+
+    const name = (els.savingsName.value || '').trim().slice(0, MAX_SAVINGS_NAME);
+    if (!name) {
+      setFieldError(els.savingsName, els.savingsNameError, 'Nama target wajib diisi.');
+      valid = false;
+    }
+
+    const rawTarget = (els.savingsTarget.value || '').trim();
+    const target = Number(rawTarget);
+    if (!rawTarget) {
+      setFieldError(els.savingsTarget, els.savingsTargetError, 'Nominal target wajib diisi.');
+      valid = false;
+    } else if (!Number.isFinite(target) || target <= 0) {
+      setFieldError(els.savingsTarget, els.savingsTargetError, 'Nominal target harus lebih dari 0.');
+      valid = false;
+    } else if (!Number.isInteger(target)) {
+      setFieldError(els.savingsTarget, els.savingsTargetError, 'Nominal target harus bilangan bulat.');
+      valid = false;
+    } else if (target > MAX_AMOUNT) {
+      setFieldError(els.savingsTarget, els.savingsTargetError, 'Nominal target terlalu besar.');
+      valid = false;
+    }
+
+    const rawSaved = (els.savingsSaved.value || '').trim();
+    const savedValue = rawSaved === '' ? 0 : Number(rawSaved);
+    if (rawSaved !== '') {
+      if (!Number.isFinite(savedValue) || savedValue < 0) {
+        setFieldError(els.savingsSaved, els.savingsSavedError, 'Dana ditabung tidak boleh negatif.');
+        valid = false;
+      } else if (!Number.isInteger(savedValue)) {
+        setFieldError(els.savingsSaved, els.savingsSavedError, 'Dana ditabung harus bilangan bulat.');
+        valid = false;
+      } else if (savedValue > MAX_AMOUNT) {
+        setFieldError(els.savingsSaved, els.savingsSavedError, 'Nominal terlalu besar.');
+        valid = false;
+      }
+    }
+
+    if (!valid) {
+      const firstInvalid = [els.savingsName, els.savingsTarget, els.savingsSaved].find((field) =>
+        field.classList.contains('is-invalid')
+      );
+      if (firstInvalid) firstInvalid.focus();
+      return null;
+    }
+
+    return { name, target: Math.round(target), saved: Math.round(savedValue) };
+  }
+
+  function openSavingsModal(goal) {
+    state.savingsEditId = goal ? goal.id : null;
+
+    els.savingsForm.reset();
+    clearFieldError(els.savingsName, els.savingsNameError);
+    clearFieldError(els.savingsTarget, els.savingsTargetError);
+    clearFieldError(els.savingsSaved, els.savingsSavedError);
+
+    els.savingsModalTitle.textContent = goal ? 'Edit target tabungan' : 'Target tabungan baru';
+    els.savingsModalSub.textContent = goal
+      ? 'Perbarui nama, nominal target, atau dana yang sudah terkumpul.'
+      : 'Tentukan nama target dan nominal yang ingin kamu capai.';
+
+    els.savingsName.value = goal ? goal.name : '';
+    els.savingsTarget.value = goal ? String(goal.target) : '';
+    els.savingsSaved.value = goal ? String(goal.saved) : '';
+
+    openModal(els.savingsModal, els.savingsName);
+  }
+
+  function handleSavingsSubmit(event) {
+    event.preventDefault();
+
+    const data = validateSavingsForm();
+    if (!data) {
+      showToast('Periksa kembali data target tabungan.', 'error');
+      return;
+    }
+
+    const editing = state.savingsEditId ? findSavings(state.savingsEditId) : null;
+
+    if (editing) {
+      Object.assign(editing, data, { updatedAt: Date.now() });
+    } else {
+      state.savings.push({ id: uid(), ...data, createdAt: Date.now() });
+    }
+
+    const saved = saveSavings();
+    closeModal(els.savingsModal);
+    renderSavings();
+
+    showToast(
+      saved
+        ? editing
+          ? `Target ${data.name} berhasil diperbarui.`
+          : `Target ${data.name} berhasil ditambahkan.`
+        : 'Target tersimpan sementara, tetapi gagal ditulis ke localStorage.',
+      saved ? 'success' : 'error'
+    );
+  }
+
+  function openSavingsFundModal(id) {
+    const goal = findSavings(id);
+    if (!goal) {
+      showToast('Target tabungan tidak ditemukan.', 'error');
+      return;
+    }
+
+    state.savingsFundId = goal.id;
+
+    els.savingsFundForm.reset();
+    clearFieldError(els.savingsFundAmount, els.savingsFundError);
+    els.savingsFundCurrent.textContent = rp.format(goal.saved);
+    els.savingsFundSub.textContent = `Target ${goal.name} · ${rp.format(goal.target)}`;
+
+    openModal(els.savingsFundModal, els.savingsFundAmount);
+  }
+
+  function handleSavingsFundSubmit(event) {
+    event.preventDefault();
+
+    const goal = findSavings(state.savingsFundId);
+    if (!goal) {
+      closeModal(els.savingsFundModal);
+      showToast('Target tabungan tidak ditemukan.', 'error');
+      return;
+    }
+
+    clearFieldError(els.savingsFundAmount, els.savingsFundError);
+
+    const raw = (els.savingsFundAmount.value || '').trim();
+    const amount = Number(raw);
+
+    let message = '';
+    if (!raw) message = 'Nominal wajib diisi.';
+    else if (!Number.isFinite(amount) || amount <= 0) message = 'Nominal harus lebih dari 0.';
+    else if (!Number.isInteger(amount)) message = 'Nominal harus bilangan bulat.';
+    else if (amount > MAX_AMOUNT) message = 'Nominal terlalu besar.';
+
+    if (message) {
+      setFieldError(els.savingsFundAmount, els.savingsFundError, message);
+      els.savingsFundAmount.focus();
+      showToast('Periksa kembali nominal tabungan.', 'error');
+      return;
+    }
+
+    goal.saved = Math.min(goal.saved + Math.round(amount), MAX_AMOUNT);
+    goal.updatedAt = Date.now();
+
+    const saved = saveSavings();
+    const complete = goal.saved >= goal.target;
+    closeModal(els.savingsFundModal);
+    renderSavings();
+
+    showToast(
+      saved
+        ? complete
+          ? `Selamat! Target ${goal.name} tercapai.`
+          : `${rp.format(amount)} ditambahkan ke tabungan ${goal.name}.`
+        : 'Dana tabungan bertambah, tetapi gagal disimpan ke localStorage.',
+      saved ? 'success' : 'error'
+    );
+  }
+
+  function openSavingsDeleteModal(id) {
+    const goal = findSavings(id);
+    if (!goal) {
+      showToast('Target tabungan tidak ditemukan.', 'error');
+      return;
+    }
+
+    state.savingsDeleteId = goal.id;
+    els.savingsDeleteSummary.textContent = `${goal.name} · ${rp.format(goal.saved)} dari ${rp.format(goal.target)}`;
+    openModal(els.savingsDeleteModal, els.savingsDeleteModal.querySelector('[data-autofocus]'));
+  }
+
+  function handleSavingsDeleteConfirm() {
+    const goal = findSavings(state.savingsDeleteId);
+    if (!goal) {
+      closeModal(els.savingsDeleteModal);
+      showToast('Target tabungan tidak ditemukan.', 'error');
+      return;
+    }
+
+    state.savings = state.savings.filter((item) => item.id !== goal.id);
+    const saved = saveSavings();
+
+    closeModal(els.savingsDeleteModal);
+    renderSavings();
+
+    showToast(
+      saved
+        ? `Target ${goal.name} dihapus.`
+        : 'Target dihapus, tetapi perubahan gagal disimpan ke localStorage.',
+      saved ? 'success' : 'error'
+    );
+  }
+
+  /* ------------------------------------------------------------------------
      Filter & pencarian
      ------------------------------------------------------------------------ */
 
@@ -1225,6 +1645,34 @@
     els.deleteSummary = $('deleteSummary');
     els.confirmDeleteBtn = $('confirmDeleteBtn');
 
+    els.addSavingsBtn = $('addSavingsBtn');
+    els.savingsList = $('savingsList');
+    els.savingsTotalValue = $('savingsTotalValue');
+    els.savingsActiveValue = $('savingsActiveValue');
+    els.savingsDoneValue = $('savingsDoneValue');
+
+    els.savingsModal = $('savingsModal');
+    els.savingsForm = $('savingsForm');
+    els.savingsModalTitle = $('savingsModalTitle');
+    els.savingsModalSub = $('savingsModalSub');
+    els.savingsName = $('savingsName');
+    els.savingsNameError = $('savingsNameError');
+    els.savingsTarget = $('savingsTarget');
+    els.savingsTargetError = $('savingsTargetError');
+    els.savingsSaved = $('savingsSaved');
+    els.savingsSavedError = $('savingsSavedError');
+
+    els.savingsFundModal = $('savingsFundModal');
+    els.savingsFundForm = $('savingsFundForm');
+    els.savingsFundAmount = $('savingsFundAmount');
+    els.savingsFundError = $('savingsFundError');
+    els.savingsFundCurrent = $('savingsFundCurrent');
+    els.savingsFundSub = $('savingsFundSub');
+
+    els.savingsDeleteModal = $('savingsDeleteModal');
+    els.savingsDeleteSummary = $('savingsDeleteSummary');
+    els.confirmSavingsDeleteBtn = $('confirmSavingsDeleteBtn');
+
     els.toastStack = $('toastStack');
   }
 
@@ -1284,6 +1732,44 @@
     /* Konfirmasi hapus */
     els.confirmDeleteBtn.addEventListener('click', handleDeleteConfirm);
 
+    /* Navigasi bagian */
+    const navLinks = [...document.querySelectorAll('.topnav-link')];
+    for (const link of navLinks) {
+      link.addEventListener('click', () => {
+        for (const item of navLinks) item.classList.toggle('is-active', item === link);
+      });
+    }
+
+    /* Tabungan: tambah target */
+    els.addSavingsBtn.addEventListener('click', () => openSavingsModal(null));
+
+    /* Tabungan: validasi realtime */
+    bindErrorClearing(els.savingsName, els.savingsNameError);
+    bindErrorClearing(els.savingsTarget, els.savingsTargetError);
+    bindErrorClearing(els.savingsSaved, els.savingsSavedError);
+    bindErrorClearing(els.savingsFundAmount, els.savingsFundError);
+
+    /* Tabungan: submit form target */
+    els.savingsForm.addEventListener('submit', handleSavingsSubmit);
+
+    /* Tabungan: submit tambah dana */
+    els.savingsFundForm.addEventListener('submit', handleSavingsFundSubmit);
+
+    /* Tabungan: konfirmasi hapus */
+    els.confirmSavingsDeleteBtn.addEventListener('click', handleSavingsDeleteConfirm);
+
+    /* Tabungan: aksi pada kartu target */
+    els.savingsList.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-action]');
+      if (!button) return;
+      const card = button.closest('[data-id]');
+      if (!card) return;
+
+      if (button.dataset.action === 'edit') openSavingsModal(findSavings(card.dataset.id));
+      else if (button.dataset.action === 'delete') openSavingsDeleteModal(card.dataset.id);
+      else if (button.dataset.action === 'fund') openSavingsFundModal(card.dataset.id);
+    });
+
     /* Tutup modal (tombol + backdrop) */
     document.addEventListener('click', (event) => {
       const closer = event.target.closest('[data-close-modal]');
@@ -1325,6 +1811,7 @@
     fillCategorySelect(els.editCategory, 'income');
 
     state.transactions = loadTransactions();
+    state.savings = loadSavings();
 
     bindEvents();
     render();
